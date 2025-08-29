@@ -192,7 +192,70 @@
                     <div><label for="maintenance-log-category" class="block text-sm font-medium text-gray-700">Sistema/Categoria do Serviço</label><input type="text" id="maintenance-log-category" required class="mt-1 block w-full input" placeholder="Ex: Motor, Câmbio, Freios"></div>
                     <div><label for="maintenance-log-parts" class="block text-sm font-medium text-gray-700">Peças Trocadas / Observações</label><textarea id="maintenance-log-parts" rows="4" class="mt-1 block w-full input" placeholder="Descreva o problema ou o serviço realizado."></textarea><button type="button" id="suggest-diagnosis-btn" class="mt-2 text-sm text-blue-600 font-semibold hover:text-blue-800">✨ Sugerir Diagnóstico <i class="fas fa-spinner fa-spin ml-2 hidden"></i></button></div>
                     
-        const { getFirestore, collection, doc, onSnapshot, runTransaction, deleteDoc, query, where, getDocs, setDoc } = fb_firestore;
+                    <!-- Seção para agendar próxima manutenção -->
+                    <div class="mt-4 p-4 bg-gray-50 rounded-lg border">
+                        <h3 class="font-semibold text-gray-800 mb-2">Agendar Próxima Manutenção (Opcional)</h3>
+                        <p class="text-xs text-gray-500 mb-3">Atualize o intervalo para a próxima manutenção. Deixe em branco para manter o atual.</p>
+                        
+                        <div id="next-date-fields-log" class="hidden">
+                            <label for="next-frequency-days-log" class="block text-sm font-medium text-gray-700">Nova Frequência (em dias)</label>
+                            <input type="number" id="next-frequency-days-log" min="1" class="mt-1 block w-full input">
+                        </div>
+                    
+                        <div id="next-reading-fields-log" class="hidden">
+                            <label id="next-interval-label-log" for="next-interval-value-log" class="block text-sm font-medium text-gray-700">Novo Intervalo de Manutenção</label>
+                            <input type="text" inputmode="decimal" id="next-interval-value-log" class="mt-1 block w-full input">
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 flex justify-end space-x-3">
+                    <button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 w-40 text-center">
+                        <span class="btn-text">Salvar Registro</span>
+                        <i class="fas fa-spinner fa-spin hidden btn-spinner"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-sm mx-auto rounded-xl shadow-2xl p-6 transform modal-enter"><h3 id="confirm-title" class="text-lg font-bold text-gray-900">Confirmar Ação</h3><p id="confirm-message" class="mt-2 text-sm text-gray-600">Você tem certeza?</p><div class="mt-6 flex justify-end space-x-3"><button id="confirm-cancel-btn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancelar</button><button id="confirm-ok-btn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-700">Confirmar</button></div></div>
+    </div>
+
+    <div id="gemini-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-2xl mx-auto rounded-xl shadow-2xl transform modal-enter max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b flex justify-between items-center"><h2 id="gemini-modal-title" class="text-2xl font-bold text-gray-900">✨ Sugestão da IA</h2><button type="button" class="cancel-btn text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button></div>
+            <div id="gemini-modal-content" class="p-6 flex-grow overflow-y-auto prose"></div>
+            <div class="p-4 bg-gray-50 border-t flex justify-end"><button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Fechar</button></div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 transform -translate-y-10 transition-all duration-300"><p id="toast-message"></p></div>
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, runTransaction, deleteDoc, query, where, getDocs, setDoc, addDoc, writeBatch, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- DOM Elements ---
+        const $ = (selector) => document.querySelector(selector);
+        const $$ = (selector) => document.querySelectorAll(selector);
+        const loader = $('#loader');
+        const equipmentGrid = $('#equipment-grid');
+        const dashboardView = $('#dashboard-view');
+        const emptyState = $('#empty-state');
+        const equipmentModal = $('#equipment-modal');
+        const detailsModal = $('#details-modal');
+        const confirmModal = $('#confirm-modal');
+        const logMaintenanceModal = $('#log-maintenance-modal');
+        const geminiModal = $('#gemini-modal');
+        const equipmentForm = $('#equipment-form');
+        const logMaintenanceForm = $('#log-maintenance-form');
+        const maintenanceTypeSelect = $('#maintenance-type');
+        const searchInput = $('#search-input');
+        const sortSelect = $('#sort-select');
 
         // --- Firebase Setup ---
         // Firebase Config - SUBSTITUA COM A SUA CONFIGURAÇÃO AQUI
@@ -206,54 +269,64 @@
           appId: "1:191201147806:web:54e88a2ec358b88d6cf48f"
         };
         
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
         // --- App State ---
         let localData = { equipment: [], history: [] };
         let confirmCallback = null;
         let maintenanceChartInstance = null;
         let equipmentChartInstance = null;
+        let db, auth;
         let equipmentCollection, historyCollection;
         let unsubscribeEquipment = null;
         let unsubscribeHistory = null;
         
-        // Autenticação anónima
-        signInAnonymously(auth)
-            .catch((error) => {
-                console.error("Anonymous sign-in failed:", error);
-                alert("Não foi possível iniciar a sessão. Verifique a sua ligação e a configuração do Firebase.");
-            });
+        // --- Main Initialization ---
+        function initializeAppLogic() {
+            try {
+                if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("COLE_A_SUA_API_KEY_AQUI")) {
+                     loader.innerHTML = `<p class="text-red-500 font-semibold">CONFIGURAÇÃO NECESSÁRIA:<br>Por favor, cole a sua configuração do Firebase no ficheiro index.html.</p>`;
+                     return;
+                }
 
-        onAuthStateChanged(auth, user => {
-            if (user) {
-                console.log("Authenticated anonymously with UID:", user.uid);
-                // Para uma aplicação standalone, usamos coleções principais para os dados.
-                equipmentCollection = collection(db, `equipment`);
-                historyCollection = collection(db, `history`);
-                subscribeToData();
-            } else {
-                console.log("User is signed out");
-                if(unsubscribeEquipment) unsubscribeEquipment();
-                if(unsubscribeHistory) unsubscribeHistory();
-                localData = { equipment: [], history: [] };
-                renderAll([]);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                signInAnonymously(auth).catch((error) => {
+                    console.error("Anonymous sign-in failed:", error);
+                    loader.innerHTML = `<p class="text-red-500">Falha na autenticação. Verifique a configuração do Firebase e se o login anónimo está ativo na consola.</p>`;
+                });
+
+                onAuthStateChanged(auth, user => {
+                    if (user) {
+                        console.log("Authenticated anonymously with UID:", user.uid);
+                        equipmentCollection = collection(db, `equipment`);
+                        historyCollection = collection(db, `history`);
+                        subscribeToData();
+                    } else {
+                        console.log("User is signed out");
+                        if(unsubscribeEquipment) unsubscribeEquipment();
+                        if(unsubscribeHistory) unsubscribeHistory();
+                        localData = { equipment: [], history: [] };
+                        renderAll([]);
+                    }
+                });
+            } catch (error) {
+                console.error("Falha na inicialização do Firebase:", error);
+                loader.innerHTML = `<p class="text-red-500">Falha ao conectar à base de dados. Verifique a configuração e as permissões. Detalhe: ${error.message}</p>`;
             }
-        });
-
+        }
 
         function subscribeToData() {
             if (unsubscribeEquipment) unsubscribeEquipment();
             unsubscribeEquipment = onSnapshot(collection(db, 'equipment'), (snapshot) => {
                 const equipmentList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 localData.equipment = equipmentList;
-                filterAndRender(); 
+                renderFilteredAndSorted(); 
+                loader.classList.add('hidden');
             }, (error) => {
                 console.error("Error fetching equipment:", error);
                 if (error.code === 'permission-denied') {
-                    alert("Erro de Permissão: Verifique as regras de segurança do seu Firestore Database. Deve estar em 'modo de teste' para começar.");
+                     loader.innerHTML = `<p class="text-red-500">Erro de Permissão: Verifique as regras de segurança do seu Firestore Database. Deve estar em 'modo de teste' para começar.</p>`;
                 }
             });
 
@@ -261,25 +334,11 @@
             unsubscribeHistory = onSnapshot(collection(db, 'history'), (snapshot) => {
                 const historyList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 localData.history = historyList;
-                filterAndRender();
+                renderFilteredAndSorted();
             }, (error) => {
                 console.error("Error fetching history:", error);
             });
         }
-
-        // --- Search & Sort ---
-        const searchInput = $('#search-input');
-        const sortSelect = $('#sort-select');
-        
-        // --- App State ---
-        let localData = { equipment: [], history: [] };
-        let confirmCallback = null;
-        let maintenanceChartInstance = null;
-        let equipmentChartInstance = null;
-        let db, auth, userId;
-        let equipmentCollection, historyCollection;
-        let unsubscribeEquipment = null;
-        let unsubscribeHistory = null;
         
         // --- Utility ---
         const parseDecimal = (str) => {
@@ -329,17 +388,11 @@
         $('#grid-view-btn').addEventListener('click', () => {
             $('#grid-view-btn').classList.replace('view-tab-inactive', 'view-tab-active');
             $('#dashboard-view-btn').classList.replace('view-tab-active', 'view-tab-inactive');
-            equipmentGrid.classList.remove('hidden');
-            dashboardView.classList.add('hidden');
-            $('#controls').classList.remove('hidden');
             renderFilteredAndSorted();
         });
         $('#dashboard-view-btn').addEventListener('click', () => {
             $('#dashboard-view-btn').classList.replace('view-tab-inactive', 'view-tab-active');
             $('#grid-view-btn').classList.replace('view-tab-active', 'view-tab-inactive');
-            dashboardView.classList.remove('hidden');
-            equipmentGrid.classList.add('hidden');
-            $('#controls').classList.add('hidden');
             renderFilteredAndSorted();
         });
 
@@ -377,64 +430,6 @@
                 const unit = type === 'km' ? 'KM' : 'Horas';
                 $('#current-reading-label').textContent = `${unit} Atual`; $('#interval-label').textContent = `Intervalo de Manutenção (${unit})`;
             }
-        }
-
-        // --- Firebase Logic ---
-        async function initializeFirebase() {
-            try {
-                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-                if (!firebaseConfig.apiKey) {
-                    throw new Error("Configuração do Firebase não encontrada.");
-                }
-
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                equipmentCollection = collection(db, `artifacts/${appId}/public/data/equipment`);
-                historyCollection = collection(db, `artifacts/${appId}/public/data/history`);
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        setupFirestoreListeners();
-                    }
-                });
-
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                 console.error("Falha na inicialização do Firebase:", error);
-                 loader.innerHTML = `<p class="text-red-500">Falha ao conectar à base de dados. Verifique a configuração e as permissões. Detalhe: ${error.message}</p>`;
-            }
-        }
-
-        function setupFirestoreListeners() {
-            loader.classList.remove('hidden');
-            if (unsubscribeEquipment) unsubscribeEquipment();
-            if (unsubscribeHistory) unsubscribeHistory();
-
-            unsubscribeEquipment = onSnapshot(equipmentCollection, (snapshot) => {
-                localData.equipment = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderFilteredAndSorted();
-                loader.classList.add('hidden');
-            }, (error) => {
-                console.error("Erro ao receber dados de equipamentos:", error);
-                loader.innerHTML = `<p class="text-red-500">Falha ao carregar equipamentos. Verifique as regras de segurança do Firestore. Detalhe: ${error.message}</p>`;
-            });
-
-            unsubscribeHistory = onSnapshot(historyCollection, (snapshot) => {
-                localData.history = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Sempre renderiza para garantir que o dashboard seja atualizado mesmo que não esteja ativo
-                renderFilteredAndSorted();
-            }, (error) => {
-                console.error("Erro ao receber histórico:", error);
-            });
         }
         
         // --- Filtering and Sorting ---
@@ -487,7 +482,6 @@
             
              emptyState.classList.add('hidden');
 
-             // Garante que a vista correta (Grade ou Dashboard) é exibida após qualquer atualização
              const isDashboardActive = $('#dashboard-view-btn').classList.contains('view-tab-active');
              dashboardView.classList.toggle('hidden', !isDashboardActive);
              equipmentGrid.classList.toggle('hidden', isDashboardActive);
@@ -500,8 +494,6 @@
                  renderEquipmentGrid(equipmentList);
              }
 
-            // Renderiza sempre os dados do dashboard para garantir que estão atualizados,
-            // mesmo que o painel não esteja visível.
             renderDashboard(localData.equipment);
             renderChart();
             renderEquipmentChart();
@@ -581,7 +573,6 @@
                 try {
                     await deleteDoc(doc(historyCollection, id));
                     showToast("Registo de manutenção excluído!");
-                    // O onSnapshot irá tratar da atualização da interface.
                 } catch (error) {
                     console.error("Error deleting maintenance record:", error);
                     showToast("Erro ao excluir o registo.", "error");
@@ -597,7 +588,6 @@
             if (equipment.plate) modalIdentifier += `${equipment.fleet ? ` (${equipment.plate})` : ''}`;
             $('#log-modal-title').textContent = `Registrar Manutenção: ${modalIdentifier}`;
             
-            // Lógica para popular a nova seção de agendamento
             const nextDateFields = $('#next-date-fields-log');
             const nextReadingFields = $('#next-reading-fields-log');
             const nextFrequencyInput = $('#next-frequency-days-log');
@@ -675,7 +665,6 @@
                     if (currentEquipmentData.maintenanceType === 'date') {
                         equipmentUpdate.lastMaintenanceDate = historyData.date;
                         
-                        // Verifica se uma nova frequência foi inserida
                         const newFrequency = parseInt($('#next-frequency-days-log').value, 10);
                         if (newFrequency && newFrequency > 0) {
                             equipmentUpdate.frequencyDays = newFrequency;
@@ -684,7 +673,6 @@
                         historyData.reading = currentEquipmentData.currentReading;
                         equipmentUpdate.lastMaintenanceReading = currentEquipmentData.currentReading;
 
-                        // Verifica se um novo intervalo foi inserido
                         const newInterval = parseDecimal($('#next-interval-value-log').value);
                         if (newInterval && newInterval > 0) {
                             equipmentUpdate.intervalValue = newInterval;
@@ -843,7 +831,6 @@
                 }
             }
             
-            // Ordenar para mostrar os que têm mais manutenções primeiro
             chartData.sort((a, b) => b.count - a.count);
 
             const labels = chartData.map(d => d.label);
@@ -859,28 +846,17 @@
                     datasets: [{
                         label: 'Nº de Manutenções',
                         data,
-                        backgroundColor: 'rgba(234, 179, 8, 0.5)', // Cor Amarela
+                        backgroundColor: 'rgba(234, 179, 8, 0.5)',
                         borderColor: 'rgba(234, 179, 8, 1)',
                         borderWidth: 1
                     }]
                 },
                 options: {
-                    indexAxis: 'y', // Gráfico de barras horizontal para melhor leitura dos nomes
+                    indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            ticks: {
-                                stepSize: 1
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    }
+                    scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+                    plugins: { legend: { display: false } }
                 }
             });
         }
@@ -980,7 +956,7 @@
             setTimeout(() => toast.classList.add('opacity-0', '-translate-y-10'), 3000);
         }
 
-        document.addEventListener('DOMContentLoaded', initializeFirebase);
+        document.addEventListener('DOMContentLoaded', initializeAppLogic);
         document.head.insertAdjacentHTML("beforeend", `<style>.input { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem 0.75rem; } .input:focus { outline: 2px solid transparent; outline-offset: 2px; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); } .btn-spinner { vertical-align: middle; }</style>`);
 
     </script>
