@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Manutenção de Equipamentos</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .modal-backdrop { background-color: rgba(0, 0, 0, 0.6); }
+        .modal-content { transition: all 0.3s ease-out; }
+        .modal-enter { opacity: 0; transform: scale(0.9); }
+        .modal-enter-active { opacity: 1; transform: scale(1); }
+        .modal-leave-active { opacity: 0; transform: scale(0.9); }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .tab-active { border-color: #3b82f6; color: #3b82f6; }
+        .tab-inactive { border-color: transparent; }
+        .view-tab-active { background-color: #3b82f6; color: white; }
+        .view-tab-inactive { background-color: white; color: #374151; }
+        #gemini-modal-content strong { color: #1e3a8a; }
+        #gemini-modal-content ul { list-style-type: disc; padding-left: 20px; }
+        .prose { max-width: none; }
+    </style>
+</head>
+<body class="antialiased text-gray-800">
+
+    <!-- Main Application Container -->
+    <div id="app" class="min-h-screen p-4 sm:p-6 lg:p-8">
+        <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <header class="flex flex-col sm:flex-row justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Painel de Manutenção</h1>
+                    <p class="text-gray-500 mt-1">Gerencie os equipamentos da sua frota.</p>
+                </div>
+                <button id="add-equipment-btn" class="w-full sm:w-auto mt-4 sm:mt-0 bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200">
+                    <i class="fas fa-plus mr-2"></i> Adicionar Equipamento
+                </button>
+            </header>
+            
+            <!-- View Toggler -->
+            <div class="mb-4 bg-white p-1 rounded-lg shadow-sm inline-flex">
+                <button id="grid-view-btn" class="view-tab-active py-2 px-4 rounded-md font-semibold text-sm transition-colors duration-200"><i class="fas fa-th-large mr-2"></i>Grade</button>
+                <button id="dashboard-view-btn" class="view-tab-inactive py-2 px-4 rounded-md font-semibold text-sm transition-colors duration-200"><i class="fas fa-chart-line mr-2"></i>Dashboard</button>
+            </div>
+
+            <!-- Search and Sort Controls -->
+            <div id="controls" class="mb-6 flex flex-col sm:flex-row gap-4">
+                <div class="relative flex-grow">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3"><i class="fas fa-search text-gray-400"></i></span>
+                    <input type="search" id="search-input" placeholder="Buscar por frota, placa, modelo..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="relative sm:w-60">
+                    <select id="sort-select" class="w-full py-2 pl-3 pr-10 border rounded-lg appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <option value="default">Ordem Padrão</option>
+                        <option value="status">Por Status (Crítico primeiro)</option>
+                        <option value="name-asc">Por Modelo (A-Z)</option>
+                        <option value="name-desc">Por Modelo (Z-A)</option>
+                    </select>
+                    <span class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none"><i class="fas fa-chevron-down text-gray-400"></i></span>
+                </div>
+            </div>
+
+            <div id="loader" class="text-center py-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2 text-gray-600">A conectar à base de dados...</p></div>
+            
+            <!-- Grid View -->
+            <main id="equipment-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 hidden"></main>
+            
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="hidden">
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500"><h3 class="text-gray-500">Em Dia</h3><p id="summary-ontime" class="text-3xl font-bold">0</p></div>
+                    <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-yellow-500"><h3 class="text-gray-500">Atenção</h3><p id="summary-attention" class="text-3xl font-bold">0</p></div>
+                    <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-red-500"><h3 class="text-gray-500">Atrasada</h3><p id="summary-overdue" class="text-3xl font-bold">0</p></div>
+                </div>
+                
+                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="font-bold mb-3 text-yellow-600">Necessitam de Atenção</h4>
+                        <ul id="list-attention" class="space-y-2 text-sm max-h-48 overflow-y-auto"></ul>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="font-bold mb-3 text-red-600">Manutenções Atrasadas</h4>
+                        <ul id="list-overdue" class="space-y-2 text-sm max-h-48 overflow-y-auto"></ul>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="font-bold mb-3 text-green-600">Manutenções em Dia</h4>
+                        <ul id="list-ontime" class="space-y-2 text-sm max-h-48 overflow-y-auto"></ul>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h4 class="font-bold text-lg mb-4">Manutenções por Categoria</h4>
+                    <div class="h-80"><canvas id="maintenance-chart"></canvas></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md mt-8">
+                    <h4 class="font-bold text-lg mb-4">Total de Manutenções por Equipamento</h4>
+                    <div class="h-80"><canvas id="equipment-maintenance-chart"></canvas></div>
+                </div>
+            </div>
+
+            <div id="empty-state" class="text-center py-16 bg-white rounded-lg shadow-md hidden"><i class="fas fa-box-open text-5xl text-gray-400"></i><h2 class="mt-4 text-2xl font-semibold text-gray-700">Nenhum equipamento encontrado</h2><p class="mt-2 text-gray-500">Clique em "Adicionar Equipamento" para começar.</p></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="equipment-modal" class="fixed inset-0 z-40 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-lg mx-auto rounded-xl shadow-2xl overflow-hidden transform modal-enter">
+            <form id="equipment-form" class="p-6 max-h-[90vh] overflow-y-auto">
+                <input type="hidden" id="equipment-id">
+                <h2 id="modal-title" class="text-2xl font-bold text-gray-900 mb-6">Adicionar Novo Equipamento</h2>
+                <div class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div><label for="fleet" class="block text-sm font-medium text-gray-700">Frota</label><input type="text" id="fleet" class="mt-1 block w-full input" placeholder="Ex: 105"></div>
+                        <div><label for="plate" class="block text-sm font-medium text-gray-700">Placa</label><input type="text" id="plate" class="mt-1 block w-full input" placeholder="Ex: ABC-1234"></div>
+                        <div class="sm:col-span-2"><label for="type" class="block text-sm font-medium text-gray-700">Modelo / Tipo do Equipamento</label><input type="text" id="type" required class="mt-1 block w-full input" placeholder="Ex: Trator John Deere 8R"></div>
+                    </div>
+                    <div><label for="location" class="block text-sm font-medium text-gray-700">Localização</label><input type="text" id="location" required class="mt-1 block w-full input"></div>
+                    <div class="p-4 bg-gray-50 rounded-lg border">
+                        <h3 class="font-semibold text-gray-800 mb-2">Controle de Manutenção</h3>
+                        <div><label for="maintenance-type" class="block text-sm font-medium text-gray-700">Controlar por:</label>
+                            <select id="maintenance-type" class="mt-1 block w-full input">
+                                <option value="date">Data</option>
+                                <option value="km">Quilometragem (KM)</option>
+                                <option value="hours">Horas de Uso (Horímetro)</option>
+                            </select>
+                        </div>
+                        <div id="date-fields" class="mt-4 space-y-4">
+                            <div><label for="last-maintenance-date" class="block text-sm font-medium text-gray-700">Data da Última Manutenção</label><input type="date" id="last-maintenance-date" class="mt-1 block w-full input"></div>
+                            <div><label for="frequency-days" class="block text-sm font-medium text-gray-700">Frequência (em dias)</label><input type="number" id="frequency-days" min="1" class="mt-1 block w-full input"></div>
+                        </div>
+                        <div id="reading-fields" class="mt-4 space-y-4 hidden">
+                             <div><label id="current-reading-label" for="current-reading" class="block text-sm font-medium text-gray-700">KM/Horímetro Atual</label><input type="text" inputmode="decimal" id="current-reading" class="mt-1 block w-full input" placeholder="Ex: 1500,5"></div>
+                            <div><label id="interval-label" for="interval-value" class="block text-sm font-medium text-gray-700">Intervalo de Manutenção</label><input type="text" inputmode="decimal" id="interval-value" class="mt-1 block w-full input" placeholder="Ex: 250"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 flex justify-end space-x-3">
+                    <button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 w-28 text-center">
+                        <span class="btn-text">Salvar</span>
+                        <i class="fas fa-spinner fa-spin hidden btn-spinner"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="details-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-2xl mx-auto rounded-xl shadow-2xl transform modal-enter max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b"><h2 id="details-modal-title" class="text-2xl font-bold text-gray-900">Detalhes do Equipamento</h2></div>
+            <div class="p-6 flex-grow overflow-y-auto">
+                <div class="border-b border-gray-200">
+                    <nav class="-mb-px flex space-x-6" aria-label="Tabs"><button id="tab-readings" class="tab-active whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Registros</button><button id="tab-history" class="tab-inactive whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Histórico</button></nav>
+                </div>
+                <div id="readings-content">
+                    <form id="add-reading-form" class="mt-6 flex items-end gap-4 p-4 bg-gray-50 rounded-lg border">
+                        <div class="flex-grow"><label id="new-reading-label" for="new-reading-value" class="block text-sm font-medium text-gray-700">Nova Leitura</label><input type="text" inputmode="decimal" id="new-reading-value" required class="mt-1 block w-full input"></div>
+                        <input type="hidden" id="details-equipment-id">
+                        <button type="submit" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 h-10"><i class="fas fa-plus"></i></button>
+                    </form>
+                </div>
+                <div id="history-content" class="hidden">
+                     <div class="flex justify-end my-4"><button type="button" id="generate-summary-btn" class="text-sm text-blue-600 font-semibold hover:text-blue-800">✨ Gerar Resumo do Histórico <i class="fas fa-spinner fa-spin ml-2 hidden"></i></button></div>
+                     <div id="maintenance-history-list" class="mt-2 space-y-3"></div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 border-t flex justify-end"><button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Fechar</button></div>
+        </div>
+    </div>
+
+    <div id="log-maintenance-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-lg mx-auto rounded-xl shadow-2xl transform modal-enter">
+            <form id="log-maintenance-form" class="p-6">
+                <h2 id="log-modal-title" class="text-2xl font-bold text-gray-900 mb-6">Registrar Manutenção</h2>
+                <div class="space-y-4">
+                    <div><label for="maintenance-log-type" class="block text-sm font-medium text-gray-700">Tipo de Manutenção</label><select id="maintenance-log-type" required class="mt-1 block w-full input"><option value="Preventiva">Preventiva</option><option value="Corretiva">Corretiva</option></select></div>
+                    <div><label for="maintenance-log-category" class="block text-sm font-medium text-gray-700">Sistema/Categoria do Serviço</label><input type="text" id="maintenance-log-category" required class="mt-1 block w-full input" placeholder="Ex: Motor, Câmbio, Freios"></div>
+                    <div><label for="maintenance-log-parts" class="block text-sm font-medium text-gray-700">Peças Trocadas / Observações</label><textarea id="maintenance-log-parts" rows="4" class="mt-1 block w-full input" placeholder="Descreva o problema ou o serviço realizado."></textarea><button type="button" id="suggest-diagnosis-btn" class="mt-2 text-sm text-blue-600 font-semibold hover:text-blue-800">✨ Sugerir Diagnóstico <i class="fas fa-spinner fa-spin ml-2 hidden"></i></button></div>
+                    
+                    <!-- Seção para agendar próxima manutenção -->
+                    <div class="mt-4 p-4 bg-gray-50 rounded-lg border">
+                        <h3 class="font-semibold text-gray-800 mb-2">Agendar Próxima Manutenção (Opcional)</h3>
+                        <p class="text-xs text-gray-500 mb-3">Atualize o intervalo para a próxima manutenção. Deixe em branco para manter o atual.</p>
+                        
+                        <div id="next-date-fields-log" class="hidden">
+                            <label for="next-frequency-days-log" class="block text-sm font-medium text-gray-700">Nova Frequência (em dias)</label>
+                            <input type="number" id="next-frequency-days-log" min="1" class="mt-1 block w-full input">
+                        </div>
+                    
+                        <div id="next-reading-fields-log" class="hidden">
+                            <label id="next-interval-label-log" for="next-interval-value-log" class="block text-sm font-medium text-gray-700">Novo Intervalo de Manutenção</label>
+                            <input type="text" inputmode="decimal" id="next-interval-value-log" class="mt-1 block w-full input">
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 flex justify-end space-x-3">
+                    <button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 w-40 text-center">
+                        <span class="btn-text">Salvar Registro</span>
+                        <i class="fas fa-spinner fa-spin hidden btn-spinner"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-sm mx-auto rounded-xl shadow-2xl p-6 transform modal-enter"><h3 id="confirm-title" class="text-lg font-bold text-gray-900">Confirmar Ação</h3><p id="confirm-message" class="mt-2 text-sm text-gray-600">Você tem certeza?</p><div class="mt-6 flex justify-end space-x-3"><button id="confirm-cancel-btn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancelar</button><button id="confirm-ok-btn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-red-700">Confirmar</button></div></div>
+    </div>
+
+    <div id="gemini-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+        <div class="modal-content bg-white w-full max-w-2xl mx-auto rounded-xl shadow-2xl transform modal-enter max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b flex justify-between items-center"><h2 id="gemini-modal-title" class="text-2xl font-bold text-gray-900">✨ Sugestão da IA</h2><button type="button" class="cancel-btn text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button></div>
+            <div id="gemini-modal-content" class="p-6 flex-grow overflow-y-auto prose"></div>
+            <div class="p-4 bg-gray-50 border-t flex justify-end"><button type="button" class="cancel-btn bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Fechar</button></div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 transform -translate-y-10 transition-all duration-300"><p id="toast-message"></p></div>
+
+    <script type="module">
+        // --- Firebase SDK Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            setDoc, 
+            deleteDoc, 
+            updateDoc, 
+            onSnapshot,
+            query,
+            where,
+            getDocs,
+            writeBatch,
+            runTransaction,
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- DOM Elements ---
+        const $ = (selector) => document.querySelector(selector);
+        const $$ = (selector) => document.querySelectorAll(selector);
+        const loader = $('#loader');
+        const equipmentGrid = $('#equipment-grid');
+        const dashboardView = $('#dashboard-view');
+        const emptyState = $('#empty-state');
+        const equipmentModal = $('#equipment-modal');
+        const detailsModal = $('#details-modal');
+        const confirmModal = $('#confirm-modal');
+        const logMaintenanceModal = $('#log-maintenance-modal');
+        const geminiModal = $('#gemini-modal');
+        const equipmentForm = $('#equipment-form');
+        const logMaintenanceForm = $('#log-maintenance-form');
+        const maintenanceTypeSelect = $('#maintenance-type');
+        const searchInput = $('#search-input');
+        const sortSelect = $('#sort-select');
+        
+        // --- App State ---
+        let localData = { equipment: [], history: [] };
+        let confirmCallback = null;
+        let maintenanceChartInstance = null;
+        let equipmentChartInstance = null;
+        let db, auth, userId;
+        let equipmentCollection, historyCollection;
+        let unsubscribeEquipment = null;
+        let unsubscribeHistory = null;
+        
+        // --- Utility ---
+        const parseDecimal = (str) => {
+            if (typeof str !== 'string' && typeof str !== 'number') return 0;
+            if(typeof str === 'number') return str;
+            return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+        };
+        const formatDecimal = (num) => {
+             return (parseDecimal(num) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+        };
+
+        // --- Gemini API ---
+        async function callGemini(prompt, button) {
+            const spinner = button.querySelector('.fa-spinner');
+            button.disabled = true;
+            spinner.classList.remove('hidden');
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+            try {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error("Resposta da IA inválida ou vazia.");
+                return text;
+            } catch (error) {
+                console.error("Gemini API call failed:", error);
+                showToast(error.message, "error");
+                return null;
+            } finally {
+                button.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function displayGeminiResponse(title, content) {
+            $('#gemini-modal-title').textContent = title;
+            const formattedContent = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n\s*\*(.*?)/g, '<li>$1</li>').replace(/(\<\/li\>)/g, '$1\n').replace(/(\<\/ul\>)/g, '$1\n');
+            const listFormatted = formattedContent.replace(/(<li>.*?<\/li>\s*)+/g, (match) => `<ul>${match}</ul>`);
+            $('#gemini-modal-content').innerHTML = listFormatted.replace(/\n/g, '<br>');
+            openModal(geminiModal);
+        }
+
+        // --- View Toggling ---
+        $('#grid-view-btn').addEventListener('click', () => {
+            $('#grid-view-btn').classList.replace('view-tab-inactive', 'view-tab-active');
+            $('#dashboard-view-btn').classList.replace('view-tab-active', 'view-tab-inactive');
+            equipmentGrid.classList.remove('hidden');
+            dashboardView.classList.add('hidden');
+            $('#controls').classList.remove('hidden');
+            renderFilteredAndSorted();
+        });
+        $('#dashboard-view-btn').addEventListener('click', () => {
+            $('#dashboard-view-btn').classList.replace('view-tab-inactive', 'view-tab-active');
+            $('#grid-view-btn').classList.replace('view-tab-active', 'view-tab-inactive');
+            dashboardView.classList.remove('hidden');
+            equipmentGrid.classList.add('hidden');
+            $('#controls').classList.add('hidden');
+            renderFilteredAndSorted();
+        });
+
+        // --- Modal Management ---
+        const openModal = (modal) => { modal.classList.remove('hidden'); setTimeout(() => modal.querySelector('.modal-content').classList.add('modal-enter-active'), 10); };
+        const closeModal = (modal) => {
+            const content = modal.querySelector('.modal-content');
+            content.classList.remove('modal-enter-active'); content.classList.add('modal-leave-active');
+            setTimeout(() => { modal.classList.add('hidden'); content.classList.remove('modal-leave-active'); }, 200);
+        };
+        
+        // --- Custom Confirm ---
+        const showConfirm = (title, message, callback) => {
+            $('#confirm-title').textContent = title; $('#confirm-message').textContent = message;
+            confirmCallback = callback; openModal(confirmModal);
+        };
+        $('#confirm-ok-btn').addEventListener('click', () => { if (confirmCallback) confirmCallback(); closeModal(confirmModal); });
+
+        // --- Event Listeners ---
+        $('#add-equipment-btn').addEventListener('click', () => {
+            equipmentForm.reset(); $('#equipment-id').value = '';
+            $('#modal-title').textContent = 'Adicionar Novo Equipamento';
+            updateFormFields(); openModal(equipmentModal);
+        });
+        $$('.cancel-btn').forEach(btn => btn.addEventListener('click', (e) => { const modal = e.target.closest('.modal-backdrop'); if(modal) closeModal(modal); }));
+        $('#confirm-cancel-btn').addEventListener('click', () => closeModal(confirmModal));
+        maintenanceTypeSelect.addEventListener('change', updateFormFields);
+
+        function updateFormFields() {
+            const type = maintenanceTypeSelect.value, isDate = type === 'date';
+            $('#date-fields').classList.toggle('hidden', !isDate); $('#reading-fields').classList.toggle('hidden', isDate);
+            $('#last-maintenance-date').required = isDate; $('#frequency-days').required = isDate;
+            $('#current-reading').required = !isDate; $('#interval-value').required = !isDate;
+            if (!isDate) {
+                const unit = type === 'km' ? 'KM' : 'Horas';
+                $('#current-reading-label').textContent = `${unit} Atual`; $('#interval-label').textContent = `Intervalo de Manutenção (${unit})`;
+            }
+        }
+
+        // --- Firebase Logic ---
+        async function initializeFirebase() {
+            try {
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+                if (!firebaseConfig.apiKey) {
+                    throw new Error("Configuração do Firebase não encontrada.");
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                equipmentCollection = collection(db, `artifacts/${appId}/public/data/equipment`);
+                historyCollection = collection(db, `artifacts/${appId}/public/data/history`);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        setupFirestoreListeners();
+                    }
+                });
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                 console.error("Falha na inicialização do Firebase:", error);
+                 loader.innerHTML = `<p class="text-red-500">Falha ao conectar à base de dados. Verifique a configuração e as permissões. Detalhe: ${error.message}</p>`;
+            }
+        }
+
+        function setupFirestoreListeners() {
+            loader.classList.remove('hidden');
+            if (unsubscribeEquipment) unsubscribeEquipment();
+            if (unsubscribeHistory) unsubscribeHistory();
+
+            unsubscribeEquipment = onSnapshot(equipmentCollection, (snapshot) => {
+                localData.equipment = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderFilteredAndSorted();
+                loader.classList.add('hidden');
+            }, (error) => {
+                console.error("Erro ao receber dados de equipamentos:", error);
+                loader.innerHTML = `<p class="text-red-500">Falha ao carregar equipamentos. Verifique as regras de segurança do Firestore. Detalhe: ${error.message}</p>`;
+            });
+
+            unsubscribeHistory = onSnapshot(historyCollection, (snapshot) => {
+                localData.history = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Sempre renderiza para garantir que o dashboard seja atualizado mesmo que não esteja ativo
+                renderFilteredAndSorted();
+            }, (error) => {
+                console.error("Erro ao receber histórico:", error);
+            });
+        }
+        
+        // --- Filtering and Sorting ---
+        searchInput.addEventListener('input', renderFilteredAndSorted);
+        sortSelect.addEventListener('change', renderFilteredAndSorted);
+
+        function renderFilteredAndSorted() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const sortOption = sortSelect.value;
+            let equipmentList = [...localData.equipment]; 
+            
+            if (searchTerm) {
+                equipmentList = equipmentList.filter(eq =>
+                    (eq.fleet?.toLowerCase() || '').includes(searchTerm) ||
+                    (eq.plate?.toLowerCase() || '').includes(searchTerm) ||
+                    (eq.type?.toLowerCase() || '').includes(searchTerm) ||
+                    (eq.location?.toLowerCase() || '').includes(searchTerm)
+                );
+            }
+
+            const statusOrder = { 'overdue': 1, 'attention': 2, 'pending': 3, 'ontime': 4 };
+            if (sortOption === 'status') {
+                equipmentList.sort((a, b) => {
+                    const statusA = getMaintenanceStatus(a).statusKey;
+                    const statusB = getMaintenanceStatus(b).statusKey;
+                    return (statusOrder[statusA] || 99) - (statusOrder[statusB] || 99);
+                });
+            } else if (sortOption === 'name-asc') {
+                equipmentList.sort((a, b) => (a.type || '').localeCompare(b.type || ''));
+            } else if (sortOption === 'name-desc') {
+                equipmentList.sort((a, b) => (b.type || '').localeCompare(a.type || ''));
+            }
+            
+            renderAll(equipmentList);
+        }
+        
+        function renderAll(equipmentList) {
+             if (!equipmentList) equipmentList = [];
+             
+             const hasLocalData = localData.equipment.length > 0;
+             const isSearching = searchInput.value.trim() !== '';
+
+             if (!hasLocalData && !isSearching) {
+                equipmentGrid.classList.add('hidden');
+                dashboardView.classList.add('hidden');
+                $('#controls').classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                return;
+             }
+            
+             emptyState.classList.add('hidden');
+
+             // Garante que a vista correta (Grade ou Dashboard) é exibida após qualquer atualização
+             const isDashboardActive = $('#dashboard-view-btn').classList.contains('view-tab-active');
+             dashboardView.classList.toggle('hidden', !isDashboardActive);
+             equipmentGrid.classList.toggle('hidden', isDashboardActive);
+             $('#controls').classList.toggle('hidden', isDashboardActive);
+
+
+             if (equipmentList.length === 0 && isSearching) {
+                 equipmentGrid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-8">Nenhum resultado encontrado para a sua busca.</p>';
+             } else {
+                 renderEquipmentGrid(equipmentList);
+             }
+
+            // Renderiza sempre os dados do dashboard para garantir que estão atualizados,
+            // mesmo que o painel não esteja visível.
+            renderDashboard(localData.equipment);
+            renderChart();
+            renderEquipmentChart();
+        }
+
+        equipmentForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const btnText = submitBtn.querySelector('.btn-text');
+            const btnSpinner = submitBtn.querySelector('.btn-spinner');
+
+            submitBtn.disabled = true;
+            btnText.classList.add('hidden');
+            btnSpinner.classList.remove('hidden');
+
+            try {
+                const id = $('#equipment-id').value;
+                const type = maintenanceTypeSelect.value;
+                const equipmentData = { 
+                    type: $('#type').value, 
+                    fleet: $('#fleet').value || '', 
+                    plate: $('#plate').value || '', 
+                    location: $('#location').value, 
+                    maintenanceType: type 
+                };
+                if (type === 'date') {
+                    equipmentData.lastMaintenanceDate = $('#last-maintenance-date').value;
+                    equipmentData.frequencyDays = parseInt($('#frequency-days').value, 10) || 0;
+                } else {
+                    const currentReading = parseDecimal($('#current-reading').value);
+                    equipmentData.currentReading = currentReading;
+                    equipmentData.intervalValue = parseDecimal($('#interval-value').value) || 0;
+                    if (!id) {
+                        equipmentData.lastMaintenanceReading = currentReading;
+                    }
+                }
+                
+                if (id) {
+                    await setDoc(doc(equipmentCollection, id), equipmentData, { merge: true });
+                    showToast("Equipamento atualizado!");
+                } else {
+                    await addDoc(equipmentCollection, equipmentData);
+                    showToast("Equipamento adicionado!");
+                }
+                closeModal(equipmentModal);
+            } catch (error) {
+                console.error("Error saving equipment:", error);
+                showToast("Erro ao salvar.", "error");
+            } finally {
+                submitBtn.disabled = false;
+                btnText.classList.remove('hidden');
+                btnSpinner.classList.add('hidden');
+            }
+        });
+
+        async function deleteEquipment(id) {
+            showConfirm("Excluir Equipamento", "Esta ação é irreversível. Deseja continuar?", async () => {
+                try {
+                    const q = query(historyCollection, where("equipmentId", "==", id));
+                    const historySnapshot = await getDocs(q);
+                    const batch = writeBatch(db);
+                    historySnapshot.forEach((doc) => {
+                        batch.delete(doc.ref);
+                    });
+                    batch.delete(doc(equipmentCollection, id));
+                    await batch.commit();
+                    showToast("Equipamento e histórico excluídos!");
+                } catch (error) {
+                    console.error("Error deleting equipment:", error);
+                    showToast("Erro ao excluir.", "error");
+                }
+            });
+        }
+        
+        async function deleteMaintenanceRecord(id) {
+            showConfirm("Excluir Registo", "Tem a certeza que deseja excluir este registo de manutenção?", async () => {
+                try {
+                    await deleteDoc(doc(historyCollection, id));
+                    showToast("Registo de manutenção excluído!");
+                    // O onSnapshot irá tratar da atualização da interface.
+                } catch (error) {
+                    console.error("Error deleting maintenance record:", error);
+                    showToast("Erro ao excluir o registo.", "error");
+                }
+            });
+        }
+
+        function openLogMaintenanceModal(equipment) {
+            logMaintenanceForm.reset(); 
+            logMaintenanceForm.dataset.equipment = JSON.stringify(equipment);
+            let modalIdentifier = equipment.type || 'Equipamento';
+            if (equipment.fleet) modalIdentifier = `Frota ${equipment.fleet}`;
+            if (equipment.plate) modalIdentifier += `${equipment.fleet ? ` (${equipment.plate})` : ''}`;
+            $('#log-modal-title').textContent = `Registrar Manutenção: ${modalIdentifier}`;
+            
+            // Lógica para popular a nova seção de agendamento
+            const nextDateFields = $('#next-date-fields-log');
+            const nextReadingFields = $('#next-reading-fields-log');
+            const nextFrequencyInput = $('#next-frequency-days-log');
+            const nextIntervalInput = $('#next-interval-value-log');
+            const nextIntervalLabel = $('#next-interval-label-log');
+
+            nextDateFields.classList.add('hidden');
+            nextReadingFields.classList.add('hidden');
+
+            if (equipment.maintenanceType === 'date') {
+                nextFrequencyInput.value = equipment.frequencyDays || '';
+                nextDateFields.classList.remove('hidden');
+            } else {
+                const unit = equipment.maintenanceType === 'km' ? 'KM' : 'Horas';
+                nextIntervalLabel.textContent = `Novo Intervalo de Manutenção (${unit})`;
+                nextIntervalInput.value = equipment.intervalValue ? formatDecimal(equipment.intervalValue).replace(/\./g, '') : '';
+                nextReadingFields.classList.remove('hidden');
+            }
+
+            const suggestBtn = $('#suggest-diagnosis-btn');
+            const newSuggestBtn = suggestBtn.cloneNode(true);
+            suggestBtn.parentNode.replaceChild(newSuggestBtn, suggestBtn);
+            newSuggestBtn.addEventListener('click', async () => {
+                const problemDescription = $('#maintenance-log-parts').value;
+                if (!problemDescription.trim()) { showToast("Por favor, descreva o problema nas observações.", "error"); return; }
+                const prompt = `Você é um mecânico especialista. Um equipamento (Modelo: ${equipment.type}, Frota: ${equipment.fleet || 'N/A'}) está com o seguinte problema: "${problemDescription}". Liste as causas prováveis e os passos recomendados para o diagnóstico e reparo.`;
+                const response = await callGemini(prompt, newSuggestBtn);
+                if (response) displayGeminiResponse("✨ Sugestão de Diagnóstico", response);
+            });
+            openModal(logMaintenanceModal);
+        }
+
+        logMaintenanceForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const btnText = submitBtn.querySelector('.btn-text');
+            const btnSpinner = submitBtn.querySelector('.btn-spinner');
+        
+            submitBtn.disabled = true;
+            btnText.classList.add('hidden');
+            btnSpinner.classList.remove('hidden');
+            
+            let equipment;
+        
+            try {
+                const equipmentJSON = e.target.dataset.equipment;
+                if (!equipmentJSON) {
+                    throw new Error("Dados do equipamento não encontrados no formulário.");
+                }
+        
+                equipment = JSON.parse(equipmentJSON);
+        
+                if (!equipment || typeof equipment.id !== 'string' || equipment.id.trim() === '') {
+                    throw new Error("ID do equipamento é inválido ou está em falta.");
+                }
+        
+                const equipmentRef = doc(equipmentCollection, equipment.id);
+        
+                await runTransaction(db, async (transaction) => {
+                    const equipmentDoc = await transaction.get(equipmentRef);
+                    if (!equipmentDoc.exists()) {
+                        throw new Error("Equipamento não encontrado na base de dados. Pode ter sido excluído.");
+                    }
+                    const currentEquipmentData = equipmentDoc.data();
+        
+                    const historyData = {
+                        equipmentId: equipment.id,
+                        date: new Date().toISOString().split('T')[0],
+                        type: $('#maintenance-log-type').value,
+                        category: $('#maintenance-log-category').value,
+                        details: $('#maintenance-log-parts').value,
+                    };
+        
+                    const equipmentUpdate = {};
+                    if (currentEquipmentData.maintenanceType === 'date') {
+                        equipmentUpdate.lastMaintenanceDate = historyData.date;
+                        
+                        // Verifica se uma nova frequência foi inserida
+                        const newFrequency = parseInt($('#next-frequency-days-log').value, 10);
+                        if (newFrequency && newFrequency > 0) {
+                            equipmentUpdate.frequencyDays = newFrequency;
+                        }
+                    } else {
+                        historyData.reading = currentEquipmentData.currentReading;
+                        equipmentUpdate.lastMaintenanceReading = currentEquipmentData.currentReading;
+
+                        // Verifica se um novo intervalo foi inserido
+                        const newInterval = parseDecimal($('#next-interval-value-log').value);
+                        if (newInterval && newInterval > 0) {
+                            equipmentUpdate.intervalValue = newInterval;
+                        }
+                    }
+        
+                    transaction.set(doc(historyCollection), historyData);
+                    transaction.update(equipmentRef, equipmentUpdate);
+                });
+        
+                showToast("Manutenção registada com sucesso!");
+                closeModal(logMaintenanceModal);
+            } catch (error) {
+                console.error("Erro ao registar manutenção:", error);
+                showToast(`Erro ao registar: ${error.message}`, "error");
+            } finally {
+                submitBtn.disabled = false;
+                btnText.classList.remove('hidden');
+                btnSpinner.classList.add('hidden');
+            }
+        });
+        
+        function renderEquipmentGrid(equipmentList) {
+            equipmentGrid.innerHTML = ''; 
+            equipmentList.forEach(eq => equipmentGrid.appendChild(createEquipmentCard(eq)));
+        }
+        
+        function openEditModal(equipment) {
+            equipmentForm.reset();
+            $('#modal-title').textContent = 'Editar Equipamento';
+            $('#equipment-id').value = equipment.id;
+            $('#fleet').value = equipment.fleet || '';
+            $('#plate').value = equipment.plate || '';
+            $('#type').value = equipment.type || '';
+            $('#location').value = equipment.location || '';
+            $('#maintenance-type').value = equipment.maintenanceType || 'date';
+
+            if (equipment.maintenanceType === 'date') {
+                $('#last-maintenance-date').value = equipment.lastMaintenanceDate || '';
+                $('#frequency-days').value = equipment.frequencyDays || '';
+            } else {
+                $('#current-reading').value = equipment.currentReading !== undefined ? formatDecimal(equipment.currentReading).replace(/\./g, '') : '';
+                $('#interval-value').value = equipment.intervalValue !== undefined ? formatDecimal(equipment.intervalValue).replace(/\./g, '') : '';
+            }
+            updateFormFields();
+            openModal(equipmentModal);
+        }
+        
+        function createEquipmentCard(equipment) {
+            const card = document.createElement('div');
+            const { status, text, colorClass } = getMaintenanceStatus(equipment);
+            let cardIdentifier = equipment.type || 'Equipamento';
+            if (equipment.fleet) cardIdentifier = `Frota ${equipment.fleet}`;
+            if (equipment.plate) cardIdentifier += `${equipment.fleet ? ` (${equipment.plate})` : `(${equipment.plate})`}`;
+            let readingInfo = '';
+            if (equipment.maintenanceType !== 'date') {
+                const unit = equipment.maintenanceType === 'km' ? 'KM' : 'Horas';
+                const reading = equipment.currentReading !== undefined ? formatDecimal(equipment.currentReading) : 'N/A';
+                readingInfo = `<p class="text-xs text-gray-600 mt-2 truncate"><i class="fas fa-tachometer-alt mr-1 text-gray-400"></i>Última Leitura: <strong>${reading} ${unit}</strong></p>`;
+            }
+            card.className = `bg-white rounded-lg shadow-md p-3 flex flex-col justify-between transition-transform transform hover:-translate-y-1 border-l-4 ${colorClass}`;
+            card.innerHTML = `
+                <div>
+                    <div class="flex justify-between items-start"><h3 class="text-base font-bold text-gray-800 truncate pr-2">${cardIdentifier}</h3><button class="delete-btn text-gray-400 hover:text-red-600 text-xs flex-shrink-0"><i class="fas fa-trash-alt"></i></button></div>
+                    <p class="text-xs text-gray-500 truncate">${cardIdentifier !== equipment.type ? equipment.type : ''}</p>
+                    ${readingInfo}
+                    <div class="mt-2 p-2 rounded-lg ${colorClass.replace('border', 'bg').replace('-500', '-100')}"><p class="font-semibold text-sm ${colorClass.replace('border', 'text').replace('-500', '-800')}">${status}</p><p class="text-xs ${colorClass.replace('border', 'text').replace('-500', '-700')}">${text}</p></div>
+                </div>
+                <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <button class="details-btn w-full bg-gray-600 text-white font-semibold py-1 px-2 rounded-md hover:bg-gray-700"><i class="fas fa-list-alt mr-1"></i>Detalhes</button>
+                    <button class="edit-btn w-full bg-yellow-500 text-white font-semibold py-1 px-2 rounded-md hover:bg-yellow-600"><i class="fas fa-pencil-alt mr-1"></i>Editar</button>
+                    <button class="log-maintenance-btn w-full bg-green-500 text-white font-semibold py-1 px-2 rounded-md hover:bg-green-600"><i class="fas fa-tools mr-1"></i>Registrar</button>
+                </div>`;
+            card.querySelector('.delete-btn').addEventListener('click', () => deleteEquipment(equipment.id));
+            card.querySelector('.details-btn').addEventListener('click', () => openDetailsModal(equipment));
+            card.querySelector('.edit-btn').addEventListener('click', () => openEditModal(equipment));
+            card.querySelector('.log-maintenance-btn').addEventListener('click', () => openLogMaintenanceModal(equipment));
+            return card;
+        }
+
+        function getMaintenanceStatus(equipment) {
+            const { maintenanceType, lastMaintenanceDate, frequencyDays, lastMaintenanceReading, currentReading, intervalValue } = equipment;
+            if (maintenanceType === 'date') {
+                if (!lastMaintenanceDate || !frequencyDays) return { status: 'Pendente', text: 'Complete os dados.', statusKey: 'pending', colorClass: 'border-gray-500' };
+                const lastDate = new Date(lastMaintenanceDate + 'T00:00:00'), nextDate = new Date(new Date(lastDate).setDate(lastDate.getDate() + parseInt(frequencyDays))), today = new Date();
+                today.setHours(0,0,0,0);
+                const daysRemaining = Math.ceil((nextDate - today) / (1000 * 3600 * 24));
+                if (daysRemaining < 0) return { status: 'Atrasada', text: `Atrasada há ${Math.abs(daysRemaining)} dia(s).`, statusKey: 'overdue', colorClass: 'border-red-500' };
+                if (daysRemaining <= 7) return { status: 'Atenção', text: `Faltam ${daysRemaining} dia(s).`, statusKey: 'attention', colorClass: 'border-yellow-500' };
+                return { status: 'Em Dia', text: `Faltam ${daysRemaining} dia(s).`, statusKey: 'ontime', colorClass: 'border-green-500' };
+            } else {
+                const unit = maintenanceType === 'km' ? 'KM' : 'Horas';
+                const last = parseDecimal(lastMaintenanceReading), current = parseDecimal(currentReading), interval = parseDecimal(intervalValue);
+                if (last === undefined || current === undefined || !interval) return { status: 'Pendente', text: `Complete os dados.`, statusKey: 'pending', colorClass: 'border-gray-500' };
+                
+                const nextMaintenanceAt = last + interval;
+                const remaining = nextMaintenanceAt - current;
+                const attentionThreshold = maintenanceType === 'km' ? 100 : 64;
+
+                if (remaining < 0) return { status: 'Atrasada', text: `Excedeu ${formatDecimal(Math.abs(remaining))} ${unit}.`, statusKey: 'overdue', colorClass: 'border-red-500' };
+                if (remaining <= attentionThreshold) return { status: 'Atenção', text: `Faltam ${formatDecimal(remaining)} ${unit}.`, statusKey: 'attention', colorClass: 'border-yellow-500' };
+                return { status: 'Em Dia', text: `Faltam ${formatDecimal(remaining)} ${unit}.`, statusKey: 'ontime', colorClass: 'border-green-500' };
+            }
+        }
+        
+        function renderDashboard(equipmentList) {
+            const statusCounts = { ontime: 0, attention: 0, overdue: 0, pending: 0 };
+            const statusLists = { ontime: [], attention: [], overdue: [] };
+            equipmentList.forEach(eq => {
+                const { statusKey, text } = getMaintenanceStatus(eq);
+                if (statusCounts.hasOwnProperty(statusKey)) statusCounts[statusKey]++;
+                if (statusLists.hasOwnProperty(statusKey)) {
+                    let identifier = eq.type; if (eq.fleet) identifier = `Frota ${eq.fleet}`; if (eq.plate) identifier += ` (${eq.plate})`;
+                    statusLists[statusKey].push(`<li><div class="flex justify-between"><span>${identifier}</span> <span class="font-semibold">${text}</span></div></li>`);
+                }
+            });
+            $('#summary-ontime').textContent = statusCounts.ontime; $('#summary-attention').textContent = statusCounts.attention; $('#summary-overdue').textContent = statusCounts.overdue;
+            $('#list-ontime').innerHTML = statusLists.ontime.join('') || '<li class="text-gray-400">Nenhum equipamento.</li>';
+            $('#list-attention').innerHTML = statusLists.attention.join('') || '<li class="text-gray-400">Nenhum equipamento.</li>';
+            $('#list-overdue').innerHTML = statusLists.overdue.join('') || '<li class="text-gray-400">Nenhum equipamento.</li>';
+        }
+
+        function renderChart() {
+            const categoryCounts = {};
+            localData.history.forEach(item => { const category = item.category || 'Não especificado'; categoryCounts[category] = (categoryCounts[category] || 0) + 1; });
+            const sortedCategories = Object.entries(categoryCounts).sort(([,a],[,b]) => b-a);
+            const labels = sortedCategories.map(item => item[0]), data = sortedCategories.map(item => item[1]);
+            const ctx = $('#maintenance-chart').getContext('2d');
+            if (maintenanceChartInstance) maintenanceChartInstance.destroy();
+            maintenanceChartInstance = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label: 'Nº de Manutenções', data, backgroundColor: 'rgba(59, 130, 246, 0.5)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { display: false } } } });
+        }
+
+        function renderEquipmentChart() {
+            const counts = {}; // Use equipment ID as key
+            localData.history.forEach(item => {
+                if (item.equipmentId) {
+                    counts[item.equipmentId] = (counts[item.equipmentId] || 0) + 1;
+                }
+            });
+
+            const equipmentMap = localData.equipment.reduce((acc, eq) => {
+                let identifier = eq.type || 'Equipamento';
+                if (eq.fleet) identifier = `Frota ${eq.fleet}`;
+                if (eq.plate) identifier += ` (${eq.plate})`;
+                acc[eq.id] = identifier;
+                return acc;
+            }, {});
+
+            const chartData = [];
+            for (const equipmentId in counts) {
+                if (equipmentMap[equipmentId]) {
+                    chartData.push({
+                        label: equipmentMap[equipmentId],
+                        count: counts[equipmentId]
+                    });
+                }
+            }
+            
+            // Ordenar para mostrar os que têm mais manutenções primeiro
+            chartData.sort((a, b) => b.count - a.count);
+
+            const labels = chartData.map(d => d.label);
+            const data = chartData.map(d => d.count);
+
+            const ctx = $('#equipment-maintenance-chart').getContext('2d');
+            if (equipmentChartInstance) equipmentChartInstance.destroy();
+
+            equipmentChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Nº de Manutenções',
+                        data,
+                        backgroundColor: 'rgba(234, 179, 8, 0.5)', // Cor Amarela
+                        borderColor: 'rgba(234, 179, 8, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Gráfico de barras horizontal para melhor leitura dos nomes
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function openDetailsModal(equipment) {
+            let modalIdentifier = equipment.type || 'Equipamento'; if (equipment.fleet) modalIdentifier = `Frota ${equipment.fleet}`; if (equipment.plate) modalIdentifier += ` (${equipment.plate})`;
+            $('#details-modal-title').textContent = modalIdentifier; $('#details-equipment-id').value = equipment.id;
+            const unit = equipment.maintenanceType === 'km' ? 'KM' : 'Horas'; $('#new-reading-label').textContent = `Nova Leitura (${unit})`;
+            const isDateType = equipment.maintenanceType === 'date';
+            $('#readings-content').classList.toggle('hidden', isDateType); $('#tab-readings').classList.toggle('hidden', isDateType);
+            if(isDateType) $('#tab-history').click(); else $('#tab-readings').click();
+            const summaryBtn = $('#generate-summary-btn'), newSummaryBtn = summaryBtn.cloneNode(true);
+            summaryBtn.parentNode.replaceChild(newSummaryBtn, summaryBtn);
+            newSummaryBtn.addEventListener('click', async () => {
+                const equipmentHistory = (localData.history || []).filter(h => h.equipmentId === equipment.id);
+                if (equipmentHistory.length === 0) { showToast("Não há histórico para resumir.", "error"); return; }
+                const historyText = equipmentHistory.map(h => `Data: ${h.date}, Tipo: ${h.type}, Categoria: ${h.category}, Detalhes: ${h.details}`).join('\n---\n');
+                const prompt = `Você é um gerente de frota. Analise o seguinte histórico de manutenção para o equipamento (Modelo: ${equipment.type}, Frota: ${equipment.fleet || 'N/A'}) e gere um resumo conciso. Destaque manutenções corretivas recorrentes, padrões de falhas e o estado geral do equipamento com base em seu histórico.\n\nHistórico:\n${historyText}`;
+                const response = await callGemini(prompt, newSummaryBtn);
+                if (response) displayGeminiResponse("✨ Resumo do Histórico", response);
+            });
+            renderMaintenanceHistory(equipment.id); openModal(detailsModal);
+        }
+
+        $('#add-reading-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = $('#details-equipment-id').value;
+            const newValue = parseDecimal($('#new-reading-value').value);
+            const equipment = localData.equipment.find(eq => eq.id === id);
+            if (!equipment) { showToast("Equipamento não encontrado.", "error"); return; }
+            const currentReading = parseDecimal(equipment.currentReading);
+            if (isNaN(newValue) || newValue <= currentReading) {
+                showToast("A nova leitura deve ser maior que a leitura atual.", "error"); return;
+            }
+            try {
+                await updateDoc(doc(equipmentCollection, id), { currentReading: newValue });
+                showToast("Leitura adicionada!");
+                $('#new-reading-value').value = '';
+            } catch (error) {
+                console.error("Error adding reading:", error);
+                showToast("Erro ao adicionar leitura.", "error");
+            }
+        });
+
+        function renderMaintenanceHistory(equipmentId) {
+            const historyList = $('#maintenance-history-list');
+            const historyForEquipment = (localData.history || [])
+                .filter(h => h.equipmentId === equipmentId)
+                .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                
+            if (historyForEquipment.length === 0) { 
+                historyList.innerHTML = '<p class="text-gray-500">Nenhum histórico de manutenção encontrado.</p>'; 
+                return; 
+            }
+            historyList.innerHTML = '';
+            historyForEquipment.forEach(item => {
+                const div = document.createElement('div');
+                const date = item.date ? new Date(item.date + 'T00:00:00').toLocaleDateString('pt-BR') : 'Data não informada';
+                let readingText = ''; 
+                if (item.reading !== undefined && item.reading !== null) {
+                    readingText = ` | Leitura: <strong>${formatDecimal(item.reading)}</strong>`;
+                }
+                div.className = 'p-4 bg-gray-50 border rounded-lg';
+                div.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-gray-800">${item.category || 'Serviço Geral'}</p>
+                            <span class="text-xs font-medium px-2 py-1 rounded-full ${item.type === 'Corretiva' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}">${item.type}</span>
+                        </div>
+                        <button class="delete-history-btn text-gray-400 hover:text-red-600 text-sm flex-shrink-0" data-history-id="${item.id}" title="Excluir Registo">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                    <p class="text-sm text-gray-600">Data: <strong>${date}</strong>${readingText}</p>
+                    ${item.details ? `<p class="text-sm text-gray-600 mt-2 pt-2 border-t"><strong>Observações:</strong><br>${item.details.replace(/\n/g, '<br>')}</p>` : ''}
+                `;
+                historyList.appendChild(div);
+            });
+
+            historyList.querySelectorAll('.delete-history-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const historyId = e.currentTarget.dataset.historyId;
+                    if (historyId) {
+                        deleteMaintenanceRecord(historyId);
+                    }
+                });
+            });
+        }
+        
+        $('#tab-readings').addEventListener('click', () => { $('#tab-readings').classList.replace('tab-inactive', 'tab-active'); $('#tab-history').classList.replace('tab-active', 'tab-inactive'); $('#readings-content').classList.remove('hidden'); $('#history-content').classList.add('hidden'); });
+        $('#tab-history').addEventListener('click', () => { $('#tab-history').classList.replace('tab-inactive', 'tab-active'); $('#tab-readings').classList.replace('tab-active', 'tab-inactive'); $('#history-content').classList.remove('hidden'); $('#readings-content').classList.add('hidden'); });
+
+        function showToast(message, type = 'success') {
+            const toast = $('#toast'); $('#toast-message').textContent = message;
+            toast.className = `fixed top-5 right-5 text-white py-2 px-5 rounded-lg shadow-lg transform transition-all duration-300 ${type === 'error' ? 'bg-red-500' : 'bg-green-500'}`;
+            toast.classList.remove('opacity-0', '-translate-y-10');
+            setTimeout(() => toast.classList.add('opacity-0', '-translate-y-10'), 3000);
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeFirebase);
+        document.head.insertAdjacentHTML("beforeend", `<style>.input { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem 0.75rem; } .input:focus { outline: 2px solid transparent; outline-offset: 2px; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); } .btn-spinner { vertical-align: middle; }</style>`);
+
+    </script>
+</body>
+</html>
